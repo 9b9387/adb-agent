@@ -8,5 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+.env
 adb_agent/.adk
 .DS_Store
