@@ -11,10 +11,8 @@ MAX_STEPS = 30
 
 # Tools that require a plan before execution (mutating actions)
 GATED_TOOLS = {
-    "tap", "long_press", "double_tap", "swipe", "type_text", "press_key",
-    "press_back", "press_home", "press_enter", "press_recent_apps",
-    "open_app", "close_app", "clear_app_data", "open_url",
-    "set_clipboard", "push_file", "pull_file", "delete_file",
+    "adb_shell", "tap", "long_press", "double_tap", "swipe", "type_text", "press_keycode",
+    "push_file", "pull_file",
 }
 
 

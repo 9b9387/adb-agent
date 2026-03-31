@@ -42,6 +42,32 @@ def _to_real_coords(norm_x: int, norm_y: int) -> tuple[int, int]:
     return real_x, real_y
 
 
+def adb_shell(command: str) -> dict:
+    """Execute an arbitrary ADB shell command on the device.
+
+    Use this for actions not covered by other tools: launching/stopping apps,
+    opening URLs, querying device state, managing files, etc.
+    Example: adb_shell('am start -a android.intent.action.VIEW -d https://google.com')
+
+    Args:
+        command: Shell command string to run on the device.
+
+    Returns:
+        dict with status, stdout output, stderr, and returncode.
+    """
+    result = subprocess.run(
+        ["adb", "shell", command],
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "status": "success" if result.returncode == 0 else "error",
+        "output": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+        "returncode": result.returncode,
+    }
+
+
 def tap(x: int, y: int) -> dict:
     """Tap a point on the screen.
 
@@ -167,75 +193,15 @@ def type_text(text: str) -> dict:
     return {"status": "success", "message": f"Typed text: {text[:50]}{'...' if len(text) > 50 else ''}"}
 
 
-def set_clipboard(text: str) -> dict:
-    """Set the device clipboard content.
+def press_keycode(keycode: str) -> dict:
+    """Send a key event to the device by keycode.
 
-    Tries Android 13+ native 'cmd clipboard' first, falls back to Clipper app broadcast.
-
-    Args:
-        text: Text to copy to clipboard.
-
-    Returns:
-        dict with status and message.
-    """
-    # Method 1: Android 13+ native command (no extra app needed)
-    result = subprocess.run(
-        ["adb", "shell", "cmd", "clipboard", "set_primary_clip_text", text, "0"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0 and "error" not in result.stderr.lower():
-        return {"status": "success", "message": "Clipboard set via native cmd"}
-
-    # Method 2: Clipper app broadcast (requires Clipper installed)
-    result = subprocess.run(
-        ["adb", "shell", "am", "broadcast", "-a", "clipper.set", "-e", "text", text],
-        capture_output=True,
-        text=True,
-    )
-    if "Broadcast completed" in result.stdout:
-        return {"status": "success", "message": "Clipboard set via Clipper"}
-
-    return {"status": "error", "error_message": "Failed to set clipboard. Device may not support 'cmd clipboard' (requires Android 13+) and Clipper app is not installed."}
-
-
-def get_clipboard() -> dict:
-    """Get the device clipboard content.
-
-    Tries Android 13+ native 'cmd clipboard' first, falls back to Clipper app broadcast.
-
-    Returns:
-        dict with status and clipboard content.
-    """
-    # Method 1: Android 13+ native command
-    result = subprocess.run(
-        ["adb", "shell", "cmd", "clipboard", "get_primary_clip", "--user", "0"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        return {"status": "success", "output": result.stdout.strip()}
-
-    # Method 2: Clipper app broadcast
-    result = subprocess.run(
-        ["adb", "shell", "am", "broadcast", "-a", "clipper.get"],
-        capture_output=True,
-        text=True,
-    )
-    return {"status": "success", "output": result.stdout.strip()}
-
-
-def press_key(keycode: str) -> dict:
-    """Send a key event to the device.
+    Common keycodes: KEYCODE_BACK (4), KEYCODE_HOME (3), KEYCODE_ENTER (66),
+    KEYCODE_DEL (67), KEYCODE_TAB (61), KEYCODE_DPAD_UP (19), KEYCODE_DPAD_DOWN (20),
+    KEYCODE_VOLUME_UP (24), KEYCODE_VOLUME_DOWN (25), KEYCODE_APP_SWITCH (187).
 
     Args:
-        keycode: Android keycode name or number. Common keycodes:
-            KEYCODE_BACK (4), KEYCODE_HOME (3), KEYCODE_ENTER (66),
-            KEYCODE_DEL (67), KEYCODE_TAB (61), KEYCODE_SPACE (62),
-            KEYCODE_DPAD_UP (19), KEYCODE_DPAD_DOWN (20),
-            KEYCODE_DPAD_LEFT (21), KEYCODE_DPAD_RIGHT (22),
-            KEYCODE_VOLUME_UP (24), KEYCODE_VOLUME_DOWN (25),
-            KEYCODE_POWER (26), KEYCODE_APP_SWITCH (187).
+        keycode: Android keycode name or number string.
 
     Returns:
         dict with status and message.
@@ -247,120 +213,7 @@ def press_key(keycode: str) -> dict:
     )
     if result.returncode != 0:
         return {"status": "error", "error_message": result.stderr}
-    return {"status": "success", "message": f"Pressed key: {keycode}"}
-
-
-def press_back() -> dict:
-    """Press the Back button.
-
-    Returns:
-        dict with status and message.
-    """
-    return press_key("4")
-
-
-def press_home() -> dict:
-    """Press the Home button.
-
-    Returns:
-        dict with status and message.
-    """
-    return press_key("3")
-
-
-def press_enter() -> dict:
-    """Press the Enter key.
-
-    Returns:
-        dict with status and message.
-    """
-    return press_key("66")
-
-
-def press_recent_apps() -> dict:
-    """Press the Recent Apps (app switcher) button.
-
-    Returns:
-        dict with status and message.
-    """
-    return press_key("187")
-
-
-def open_app(package_name: str) -> dict:
-    """Launch an app by its package name.
-
-    Args:
-        package_name: Android package name, e.g. 'com.android.settings'.
-
-    Returns:
-        dict with status and message.
-    """
-    result = subprocess.run(
-        ["adb", "shell", "monkey", "-p", package_name,
-         "-c", "android.intent.category.LAUNCHER", "1"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return {"status": "error", "error_message": result.stderr}
-    return {"status": "success", "message": f"Launched app: {package_name}"}
-
-
-def close_app(package_name: str) -> dict:
-    """Force stop an app by its package name.
-
-    Args:
-        package_name: Android package name to stop.
-
-    Returns:
-        dict with status and message.
-    """
-    result = subprocess.run(
-        ["adb", "shell", "am", "force-stop", package_name],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return {"status": "error", "error_message": result.stderr}
-    return {"status": "success", "message": f"Stopped app: {package_name}"}
-
-
-def clear_app_data(package_name: str) -> dict:
-    """Clear all data for an app. This will reset the app to its initial state.
-
-    Args:
-        package_name: Android package name whose data to clear.
-
-    Returns:
-        dict with status and message.
-    """
-    result = subprocess.run(
-        ["adb", "shell", "pm", "clear", package_name],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return {"status": "error", "error_message": result.stderr}
-    return {"status": "success", "message": f"Cleared data for: {package_name}"}
-
-
-def open_url(url: str) -> dict:
-    """Open a URL in the default browser on the device.
-
-    Args:
-        url: The URL to open, e.g. 'https://www.google.com'.
-
-    Returns:
-        dict with status and message.
-    """
-    result = subprocess.run(
-        ["adb", "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return {"status": "error", "error_message": result.stderr}
-    return {"status": "success", "message": f"Opened URL: {url}"}
+    return {"status": "success", "message": f"Pressed keycode: {keycode}"}
 
 
 def wait(seconds: float = 2.0) -> dict:
@@ -376,19 +229,3 @@ def wait(seconds: float = 2.0) -> dict:
     return {"status": "success", "message": f"Waited {seconds} seconds"}
 
 
-def finish_task(success: bool, summary: str) -> dict:
-    """Call this tool when you have completed the assigned task or determined it's impossible to complete.
-
-    Args:
-        success: True if the task was completed successfully, False otherwise.
-        summary: A brief summary of what was accomplished or why it failed.
-
-    Returns:
-        dict with task completion status.
-    """
-    return {
-        "status": "task_finished", 
-        "success": success, 
-        "summary": summary,
-        "message": "Task marked as finished. Run loop will now terminate."
-    }

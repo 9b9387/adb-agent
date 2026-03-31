@@ -14,11 +14,11 @@ Call `create_plan` to decompose the task into 1-5 steps. Each step has a done_co
 - Perform ONE action per turn (tap, swipe, type, etc.)
 - When the done_condition is met → call `advance_plan(observation)`
 - If not met → try a different action
-- If a step is impossible (element missing, app crashed) → call `finish_task(success=False, summary="reason")`
 
 ## Guidelines
 - Use `wait` after actions that trigger loading.
-- Use `open_app(package_name)` to launch apps. Use `get_installed_packages(filter_keyword)` if package name is unknown.
+- Use `adb_shell` for anything not covered by other tools: launching apps (`am start`), stopping apps (`am force-stop`), opening URLs, querying device state, etc.
+- Use `press_keycode` to send key events (e.g. `4`=Back, `3`=Home, `66`=Enter).
 - Tap a text field to focus it before calling `type_text()`.
 
 ## Rules

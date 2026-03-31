@@ -58,10 +58,6 @@ async def run_task(task: str):
                     step_count += 1
                     print(f"[Step {step_count}/{max_steps}] Tool Call: {part.function_call.name}({part.function_call.args})")
                     
-                    if part.function_call.name == "finish_task":
-                        print("\n[!] Agent explicitly marked task as finished. Stopping loop.")
-                        return
-                        
                     if step_count >= max_steps:
                         print(f"\n[!] Reached maximum step limit ({max_steps}). Forcing exit to prevent infinite loops.")
                         return
