@@ -18,9 +18,11 @@ A plan has already been created for you. Each turn you see the current step, its
 - Use `press_keycode` to send key events (e.g. `4`=Back, `3`=Home, `66`=Enter).
 - Tap a text field to focus it before calling `type_text()`.
 
+## Session Blackboard
+Use `write_memo(key, value)` to save any content that needs to survive across steps in this session 
+
 ## Rules
 - Interpret the task LITERALLY. Do not explore beyond what is asked.
-- One action per turn.
 - If the screen hasn't changed after your action, try a different approach.
 - Do NOT repeat the exact same action twice in a row.
 """

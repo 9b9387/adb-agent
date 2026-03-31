@@ -1,90 +1,58 @@
 # ADB Phone Automation Agent
 
-A vision-based Android automation agent built with Google ADK and ADB. The agent accepts a natural-language task, generates a structured plan, then executes it step-by-step by analysing screenshots and issuing ADB commands.
+A vision-empowered Android automation agent that allows you to control your mobile device using natural language. Built with the Google Agent Development Kit (ADK) and Gemini, it transforms high-level instructions into precise on-screen actions by "seeing" the device state through screenshots.
 
-## Architecture
+## What can it do?
 
-The agent runs in two phases:
+The agent excels at handling complex, multi-step workflows that require both visual understanding and logical reasoning. 
 
-**Phase 1 — Planning** (`adb_agent/planner.py`)
-A standalone `google.genai` call (outside the ADK loop) produces a JSON plan:
-```json
-{
-  "goal": "...",
-  "steps": ["step 1", "step 2", "..."],
-  "done_conditions": ["visual condition for step 1", "..."],
-  "current_step": 0,
-  "completed_observations": []
-}
-```
-The plan is injected into the ADK session state via `create_session(state={"plan": plan})`.
+## How it Works
 
-**Phase 2 — Execution** (ADK agent loop)
-The agent works through each step one action at a time:
-- `before_model_callback` injects the latest screenshot and current plan state into every model turn
-- The agent performs **one action per turn** (tap, swipe, type, etc.)
-- When the done condition for the current step is visually confirmed, the agent calls `advance_plan(observation)` to move to the next step
-- The loop ends when all steps are complete
+The agent operates in a two-stage process to ensure reliability and accuracy:
 
-## Prerequisites
+### 1. Planning Phase
+When you provide a task, the agent first analyzes the request and breaks it down into a structured, step-by-step plan. Each step includes a specific goal and a "done condition"—a visual state that must be achieved before moving to the next part of the task.
 
-1. Install [uv](https://docs.astral.sh/uv/)
-2. Connect an Android device with USB debugging enabled:
-   ```bash
-   adb devices   # should show your device
-   ```
-3. Copy the env template and set your API key:
-   ```bash
-   cp .env.example .env
-   # edit .env and set GOOGLE_API_KEY
-   ```
-4. Install dependencies:
-   ```bash
-   uv sync
-   ```
+### 2. Execution Phase (Agent Loop)
+The agent enters an iterative loop where it:
+- **Observes:** Takes a screenshot of the current device screen.
+- **Analyzes:** Compares the screenshot with the current step of the plan.
+- **Acts:** Selects and executes the most appropriate tool (like a tap or swipe) to progress toward the goal.
+- **Validates:** Confirms the action had the intended effect before proceeding.
 
-## Usage
+## Available Tools
+
+The agent is equipped with a versatile set of tools to interact with the device:
+- **Touch Actions:** Precision tapping, swiping, and long-pressing based on visual coordinates.
+- **Text Input:** Intelligent typing that supports Unicode characters and various languages.
+- **System Commands:** Standard navigation like Home, Back, and Recent Apps.
+- **Visual Memory:** A "memo" system that allows the agent to store and retrieve data across different steps of a task.
+- **File Operations:** Capabilities to push files to the device or pull data from it.
+- **Advanced Control:** Direct ADB shell access for low-level system interactions when necessary.
+
+## Getting Started
+
+### Prerequisites
+1. **Android Device:** Connected via USB with Developer Options and USB Debugging enabled.
+2. **ADB Installed:** The `adb` command must be available in your system PATH.
+3. **Environment:** A `.env` file with a valid `GOOGLE_API_KEY`.
+4. **Optional - Unicode Support:** For non-ASCII text input (like Chinese), installing [ADBKeyBoard](https://github.com/senzhk/ADBKeyBoard) on the device is recommended.
+
+### Usage
+Run the agent by providing your task as a command-line argument:
 
 ```bash
-uv run python main.py "Open the Settings app"
-uv run python main.py "Open WeChat and send hello to Alice"
+uv run python main.py "Open the Settings app and check for system updates"
 ```
 
-The CLI will print the generated plan before execution begins.
+The agent will print its plan and then begin executing the steps while providing real-time feedback on its progress.
 
-## Tools
+### Debugging & Visualization
 
-| Tool | Description |
-|------|-------------|
-| `advance_plan` | Mark the current step done and move to the next |
-| `get_screen_size` | Return screen width and height in pixels |
-| `adb_shell` | Run an arbitrary adb shell command |
-| `tap` | Tap at coordinates (0–1000 normalised scale) |
-| `long_press` | Long-press at coordinates |
-| `double_tap` | Double-tap at coordinates |
-| `swipe` | Swipe between two coordinates |
-| `type_text` | Type text into the focused field |
-| `press_keycode` | Send an Android key event (e.g. HOME, BACK) |
-| `wait` | Pause for a given number of seconds |
-| `push_file` | Upload a file to the device |
-| `pull_file` | Download a file from the device |
+For a more interactive experience and visual debugging, you can use the ADK Web UI:
 
-## Project Structure
-
+```bash
+uv run adk web
 ```
-adb-agent/
-├── main.py                 # CLI entry point
-├── pyproject.toml
-├── adb_agent/
-│   ├── agent.py            # ADK agent definition
-│   ├── callbacks.py        # before_tool + before_model callbacks
-│   ├── planner.py          # Phase 1: standalone plan generation
-│   ├── prompts.py          # System prompt
-│   └── tools/
-│       ├── __init__.py     # ALL_TOOLS export
-│       ├── actions.py      # tap, swipe, type_text, adb_shell, …
-│       ├── file_ops.py     # push_file, pull_file
-│       ├── planning.py     # advance_plan
-│       └── screen.py       # screenshot capture + get_screen_size
-└── README.md
-```
+
+This will launch a web interface (usually at `http://localhost:8080`) where you can monitor the agent's turns, view screenshots, and inspect the session state in real-time.

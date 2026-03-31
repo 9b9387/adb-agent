@@ -14,6 +14,10 @@ from .file_ops import (
     pull_file,
     push_file,
 )
+from .memo import (
+    read_memo,
+    write_memo,
+)
 from .planning import (
     advance_plan,
 )
@@ -38,4 +42,7 @@ ALL_TOOLS = [
     # File operations
     push_file,
     pull_file,
+    # Session blackboard
+    write_memo,
+    read_memo,
 ]

@@ -5,6 +5,7 @@ system. Internally, they are converted to real screen pixels via:
     real_x = norm_x * screen_width / 1000
 """
 
+import base64
 import subprocess
 import time
 
@@ -164,7 +165,9 @@ def swipe(start_x: int, start_y: int, end_x: int, end_y: int, duration_ms: int =
 def type_text(text: str) -> dict:
     """Type text on the device. The text input field must already be focused.
 
-    Special characters and spaces are handled automatically.
+    Supports all characters including Chinese/Unicode via ADBKeyboard.
+    Falls back to `adb shell input text` for ASCII-only text when ADBKeyboard
+    is not installed or not set as the active IME.
 
     Args:
         text: The text string to type.
@@ -175,14 +178,43 @@ def type_text(text: str) -> dict:
     if not text:
         return {"status": "success", "message": "Ignored empty text"}
 
-    # Android's `input text` officially expects spaces to be '%s'
-    safe_text = text.replace(" ", "%s")
-    
-    # Escape single quotes for shell safety: ' -> '\''
-    safe_text = safe_text.replace("'", "'\\''")
+    short = text[:30] + ("…" if len(text) > 30 else "")
 
-    # Pass the entire parsed command as one string to `adb shell`
-    # so Android's /system/bin/sh processes the wrapping single quotes
+    # Check if ADBKeyboard is the active IME.
+    ime_result = subprocess.run(
+        ["adb", "shell", "settings", "get", "secure", "default_input_method"],
+        capture_output=True,
+        text=True,
+    )
+    adbkeyboard_active = "adbkeyboard" in ime_result.stdout.strip().lower()
+
+    if adbkeyboard_active:
+        # ADBKeyboard broadcast using base64 encoding.
+        # ADB_INPUT_B64 is the recommended method for modern Android (Oreo+):
+        # raw UTF-8 in am broadcast arguments is silently dropped on Oreo and later.
+        # base64 encoding avoids all shell quoting and encoding issues.
+        # Note: am broadcast for non-ordered broadcasts always outputs result=0,
+        # so we rely on IME detection above rather than parsing broadcast output.
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        result = subprocess.run(
+            ["adb", "shell", "am", "broadcast", "-a", "ADB_INPUT_B64", "--es", "msg", b64],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return {"status": "success", "message": f"Typed via ADBKeyboard: {short}"}
+        return {"status": "error", "error_message": f"ADBKeyboard broadcast failed: {result.stderr}"}
+
+    # Fallback: adb shell input text (ASCII / Latin only).
+    # `input text` crashes (NPE) on chars KeyCharacterMap cannot map (Chinese, emoji…).
+    # Escape in order: % → %% (literal percent), space → %s, newline → %n, then ' for shell.
+    safe_text = (
+        text
+        .replace("%", "%%")
+        .replace(" ", "%s")
+        .replace("\n", "%n")
+        .replace("'", "'\\''")
+    )
     result = subprocess.run(
         ["adb", "shell", f"input text '{safe_text}'"],
         capture_output=True,
@@ -190,7 +222,7 @@ def type_text(text: str) -> dict:
     )
     if result.returncode != 0:
         return {"status": "error", "error_message": result.stderr}
-    return {"status": "success", "message": f"Typed text: {text[:50]}{'...' if len(text) > 50 else ''}"}
+    return {"status": "success", "message": f"Typed via input text: {short}"}
 
 
 def press_keycode(keycode: str) -> dict:
