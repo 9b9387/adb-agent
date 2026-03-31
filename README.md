@@ -1,88 +1,90 @@
 # ADB Phone Automation Agent
 
-基于 Google ADK + Android ADB 的纯视觉手机自动化代理。Agent 接收任务指令，通过截图分析当前屏幕状态，自动规划并执行 ADB 操作。
+A vision-based Android automation agent built with Google ADK and ADB. The agent accepts a natural-language task, generates a structured plan, then executes it step-by-step by analysing screenshots and issuing ADB commands.
 
-## 架构
+## Architecture
 
-- **单 LLM Agent**，使用 `gemini-2.5-flash` 视觉模型
-- **纯视觉方案**：通过截图感知屏幕，无需 OCR 或无障碍树
-- **Agent Loop**：截图注入 → LLM 思考 → 调用 ADB 工具 → 验证结果 → 循环
-- **坐标归一化**：Gemini 输出 0-1000 归一化坐标，工具内部自动转换为真实像素
+The agent runs in two phases:
 
-## 环境准备
+**Phase 1 — Planning** (`adb_agent/planner.py`)
+A standalone `google.genai` call (outside the ADK loop) produces a JSON plan:
+```json
+{
+  "goal": "...",
+  "steps": ["step 1", "step 2", "..."],
+  "done_conditions": ["visual condition for step 1", "..."],
+  "current_step": 0,
+  "completed_observations": []
+}
+```
+The plan is injected into the ADK session state via `create_session(state={"plan": plan})`.
 
-1. 安装 [uv](https://docs.astral.sh/uv/)
-2. 配置 Android ADB 并连接设备：
+**Phase 2 — Execution** (ADK agent loop)
+The agent works through each step one action at a time:
+- `before_model_callback` injects the latest screenshot and current plan state into every model turn
+- The agent performs **one action per turn** (tap, swipe, type, etc.)
+- When the done condition for the current step is visually confirmed, the agent calls `advance_plan(observation)` to move to the next step
+- The loop ends when all steps are complete
+
+## Prerequisites
+
+1. Install [uv](https://docs.astral.sh/uv/)
+2. Connect an Android device with USB debugging enabled:
    ```bash
-   adb devices  # 确认设备已连接
+   adb devices   # should show your device
    ```
-3. 复制环境变量文件并填入 API Key：
+3. Copy the env template and set your API key:
    ```bash
    cp .env.example .env
-   # 编辑 .env，填入 GOOGLE_API_KEY
+   # edit .env and set GOOGLE_API_KEY
    ```
-4. 安装依赖：
+4. Install dependencies:
    ```bash
    uv sync
    ```
 
-## 使用方式
+## Usage
 
-### CLI 方式
 ```bash
-uv run python main.py "打开设置应用"
-uv run python main.py "打开微信并发送你好给张三"
+uv run python main.py "Open the Settings app"
+uv run python main.py "Open WeChat and send hello to Alice"
 ```
 
-### ADK Web UI（开发调试）
-```bash
-uv run adk web
-# 浏览器打开 http://localhost:8000，选择 adb_agent
-```
+The CLI will print the generated plan before execution begins.
 
-## 工具列表
+## Tools
 
-### 屏幕操作
-- `get_screen_size` — 获取屏幕分辨率
+| Tool | Description |
+|------|-------------|
+| `advance_plan` | Mark the current step done and move to the next |
+| `get_screen_size` | Return screen width and height in pixels |
+| `adb_shell` | Run an arbitrary adb shell command |
+| `tap` | Tap at coordinates (0–1000 normalised scale) |
+| `long_press` | Long-press at coordinates |
+| `double_tap` | Double-tap at coordinates |
+| `swipe` | Swipe between two coordinates |
+| `type_text` | Type text into the focused field |
+| `press_keycode` | Send an Android key event (e.g. HOME, BACK) |
+| `wait` | Pause for a given number of seconds |
+| `push_file` | Upload a file to the device |
+| `pull_file` | Download a file from the device |
 
-### 交互操作
-- `tap` / `long_press` / `double_tap` — 点击操作（坐标 0-1000）
-- `swipe` — 滑动操作
-- `type_text` — 文本输入
-- `set_clipboard` / `get_clipboard` — 剪贴板操作
-- `press_key` / `press_back` / `press_home` / `press_enter` / `press_recent_apps` — 按键
-- `open_app` / `close_app` / `clear_app_data` — 应用管理
-- `open_url` — 打开链接
-- `wait` — 等待
-
-### 文件操作
-- `push_file` / `pull_file` — 文件上传/下载
-- `list_files` / `delete_file` — 文件列表/删除
-
-### 设备信息
-- `get_device_info` — 设备详情
-- `get_battery_info` — 电池状态
-- `get_current_app` — 当前前台应用
-- `get_installed_packages` — 已安装应用列表
-- `get_screen_state` / `wake_screen` / `lock_screen` — 屏幕状态管理
-
-## 项目结构
+## Project Structure
 
 ```
 adb-agent/
+├── main.py                 # CLI entry point
 ├── pyproject.toml
-├── .env.example
-├── main.py                 # CLI 入口
 ├── adb_agent/
-│   ├── __init__.py
-│   ├── agent.py            # Agent 定义
-│   ├── callbacks.py        # before_model_callback（截图注入）
-│   ├── prompts.py          # 系统指令
+│   ├── agent.py            # ADK agent definition
+│   ├── callbacks.py        # before_tool + before_model callbacks
+│   ├── planner.py          # Phase 1: standalone plan generation
+│   ├── prompts.py          # System prompt
 │   └── tools/
-│       ├── __init__.py     # ALL_TOOLS 聚合导出
-│       ├── screen.py       # 截屏与图像处理
-│       ├── actions.py      # 交互操作
-│       ├── file_ops.py     # 文件传输
-│       └── device_info.py  # 设备信息
+│       ├── __init__.py     # ALL_TOOLS export
+│       ├── actions.py      # tap, swipe, type_text, adb_shell, …
+│       ├── file_ops.py     # push_file, pull_file
+│       ├── planning.py     # advance_plan
+│       └── screen.py       # screenshot capture + get_screen_size
 └── README.md
 ```

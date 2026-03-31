@@ -16,15 +16,13 @@ from .file_ops import (
 )
 from .planning import (
     advance_plan,
-    create_plan,
 )
 from .screen import (
     get_screen_size,
 )
 
 ALL_TOOLS = [
-    # Planning (FIRST — mandatory before actions)
-    create_plan,
+    # Planning
     advance_plan,
     # Screen
     get_screen_size,
