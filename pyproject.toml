@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "adb-agent"
 version = "0.1.0"
@@ -8,8 +12,25 @@ dependencies = [
     "google-adk>=1.0.0",
     "httpx[socks]>=0.28.1",
     "Pillow>=10.0.0",
+    "playwright>=1.58.0",
     "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
 adb-agent = "main:main"
+browser-agent = "browser_main:main"
+adk-web-agents = "adk_web_agents.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.setuptools]
+py-modules = ["main", "browser_main"]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adb_agent*", "browser_agent*", "agent_shared*", "adk_web_agents*"]
+exclude = ["tests*"]

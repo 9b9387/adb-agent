@@ -5,9 +5,10 @@ import time
 from google.adk.models import LlmResponse
 from google.genai import types
 
-from .tools.screen import resize_screenshot, take_screenshot
+from agent_shared.callbacks import record_tool_usage
+from agent_shared.constants import MAX_STEPS
 
-MAX_STEPS = 30
+from .tools.screen import resize_screenshot, take_screenshot
 
 # Tools after which screenshot injection is skipped (non-visual operations).
 NO_SCREENSHOT_TOOLS = {"push_file", "pull_file", "write_memo", "read_memo"}
@@ -15,12 +16,7 @@ NO_SCREENSHOT_TOOLS = {"push_file", "pull_file", "write_memo", "read_memo"}
 
 def enforce_plan(tool, args, tool_context):
     """before_tool_callback: tracks action history and last tool name in session state."""
-    action_history = tool_context.state.get("action_history", [])
-    action_str = f"{tool.name}({', '.join(f'{k}={v}' for k, v in args.items())})"
-    action_history.append(action_str)
-    tool_context.state["action_history"] = action_history
-    tool_context.state["last_tool_name"] = tool.name
-    return None  # allow tool execution
+    return record_tool_usage(tool, args, tool_context)
 
 
 def inject_screenshot(callback_context, llm_request):

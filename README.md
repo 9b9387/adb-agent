@@ -2,6 +2,8 @@
 
 A vision-empowered Android automation agent that allows you to control your mobile device using natural language. Built with the Google Agent Development Kit (ADK) and Gemini, it transforms high-level instructions into precise on-screen actions by "seeing" the device state through screenshots.
 
+The repository now also includes a separate `browser_agent` that reuses the same plan-first execution architecture, but swaps ADB actions for Playwright tools so the agent can control a desktop browser.
+
 ## What can it do?
 
 The agent excels at handling complex, multi-step workflows that require both visual understanding and logical reasoning. 
@@ -52,7 +54,97 @@ The agent will print its plan and then begin executing the steps while providing
 For a more interactive experience and visual debugging, you can use the ADK Web UI:
 
 ```bash
-uv run adk web
+uv run adk-web-agents
 ```
 
-This will launch a web interface (usually at `http://localhost:8080`) where you can monitor the agent's turns, view screenshots, and inspect the session state in real-time.
+This launches `adk web` against the dedicated `adk_web_agents/` wrappers so the UI stays focused on the real agents and avoids helper folders like `tests/` or `agent_shared/`. If port `8000` is already occupied, the launcher automatically picks the next free port.
+
+## Browser Agent (Playwright)
+
+The browser agent follows the same overall loop as the phone agent:
+
+1. Generate a structured plan from the user task.
+2. Store the plan in ADK session state.
+3. Run a loop where the agent observes the current browser page, chooses one tool call, validates progress, and advances the plan with `advance_plan`.
+
+### Browser Setup
+
+Install the Python dependency and Playwright's Chromium browser:
+
+```bash
+uv sync
+uv run playwright install chromium
+```
+
+Recommended `.env` settings:
+
+```bash
+GOOGLE_API_KEY=your-api-key
+MODEL_NAME=gemini-3-flash-preview
+BROWSER_CDP_URL=
+BROWSER_USER_DATA_DIR=.browser-profile/playwright
+BROWSER_HEADLESS=false
+BROWSER_CHANNEL=
+BROWSER_START_URL=
+```
+
+### Reuse Your Current Browser via CDP
+
+Yes. If you want the agent to drive your already running Chrome or Chromium instead of opening its own Playwright profile, start that browser with a remote debugging port and set `BROWSER_CDP_URL`.
+
+Example:
+
+```bash
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+```
+
+Then in `.env`:
+
+```bash
+BROWSER_CDP_URL=http://127.0.0.1:9222
+```
+
+When `BROWSER_CDP_URL` is set, `browser_agent` will:
+
+- connect to the existing browser over CDP
+- reuse the current browser session and logged-in tabs
+- avoid closing your real browser when the agent disconnects
+
+If `BROWSER_CDP_URL` is not set, it falls back to the dedicated persistent Playwright profile.
+
+### Browser Usage
+
+Run the browser agent with a natural-language task:
+
+```bash
+uv run browser-agent "Open GitHub, search for google/adk, and stop when the repository page is visible"
+```
+
+You can also call the entrypoint directly:
+
+```bash
+uv run python browser_main.py "Open Hacker News and search for Playwright posts"
+```
+
+### Persistent Profile Notes
+
+- Default mode uses a persistent Playwright context so login state can survive across runs.
+- By default it uses `.browser-profile/playwright` inside the repo. This is the safest option for automation.
+- CDP mode is better if you explicitly want to drive your already running browser.
+- A dedicated automation profile is still strongly recommended for non-CDP usage. Reusing your day-to-day browser profile can fail because of profile locking and can pollute your normal browsing session.
+
+### ADK Web Usage
+
+To debug both agents in the ADK Web UI:
+
+```bash
+uv run adk-web-agents
+```
+
+If you want to force a specific port, you still can:
+
+```bash
+uv run adk-web-agents --port 8093
+```
+
+`adk web` itself expects a directory whose subdirectories each contain `__init__.py` and `agent.py`. This repo provides lightweight wrappers under `adk_web_agents/` so the UI only lists the real `adb_agent` and `browser_agent`.
