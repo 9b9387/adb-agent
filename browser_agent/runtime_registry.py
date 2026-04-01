@@ -2,21 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import Browser
-from playwright.sync_api import BrowserContext
-from playwright.sync_api import Page
-from playwright.sync_api import Playwright
-from playwright.sync_api import sync_playwright
+from playwright.async_api import Browser
+from playwright.async_api import BrowserContext
+from playwright.async_api import Page
+from playwright.async_api import Playwright
+from playwright.async_api import async_playwright
 
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
 DEFAULT_TIMEOUT_MS = 5_000
 DEFAULT_USER_DATA_DIR = ".browser-profile/playwright"
+RETRYABLE_NAVIGATION_ERRORS = (
+    "Execution context was destroyed",
+    "Cannot find context with specified id",
+    "Most likely the page has been closed",
+)
 
 
 @dataclass
@@ -73,25 +79,36 @@ def _resolve_cdp_url(cdp_url: str | None = None) -> str | None:
     return value or None
 
 
+def _is_retryable_navigation_error(exc: Exception) -> bool:
+    message = str(exc)
+    return any(fragment in message for fragment in RETRYABLE_NAVIGATION_ERRORS)
+
+
 def _all_open_pages(runtime: BrowserRuntime) -> list[Page]:
     pages: list[Page] = []
-    for context in [runtime.context, *[ctx for ctx in runtime.browser.contexts if ctx is not runtime.context]] if runtime.browser else [runtime.context]:
+    contexts = [runtime.context]
+    if runtime.browser is not None:
+        contexts.extend(
+            context for context in runtime.browser.contexts if context is not runtime.context
+        )
+
+    for context in contexts:
         pages.extend(page for page in context.pages if not page.is_closed())
     return pages
 
 
-def _get_active_page(runtime: BrowserRuntime) -> Page:
+async def _get_active_page(runtime: BrowserRuntime) -> Page:
     if not runtime.page.is_closed():
         return runtime.page
 
     open_pages = _all_open_pages(runtime)
-    runtime.page = open_pages[-1] if open_pages else runtime.context.new_page()
+    runtime.page = open_pages[-1] if open_pages else await runtime.context.new_page()
     runtime.page.set_default_timeout(DEFAULT_TIMEOUT_MS)
     return runtime.page
 
 
-def _snapshot_page(page: Page, *, element_limit: int, text_limit: int) -> dict[str, Any]:
-    return page.evaluate(
+async def _snapshot_page(page: Page, *, element_limit: int, text_limit: int) -> dict[str, Any]:
+    return await page.evaluate(
         """
         ({ elementLimit, textLimit }) => {
           const normalize = (value) => (value || "").replace(/\\s+/g, " ").trim();
@@ -178,6 +195,17 @@ def _snapshot_page(page: Page, *, element_limit: int, text_limit: int) -> dict[s
     )
 
 
+def _close_all_sessions_sync() -> None:
+    if not _RUNTIMES:
+        return
+
+    try:
+        asyncio.run(close_all_sessions())
+    except RuntimeError:
+        # Ignore shutdown-time loop issues. This is best-effort cleanup.
+        return
+
+
 def has_runtime(session_id: str) -> bool:
     """Return whether a live Playwright runtime exists for the session."""
     return session_id in _RUNTIMES
@@ -188,11 +216,10 @@ def get_runtime(session_id: str) -> BrowserRuntime:
     runtime = _RUNTIMES.get(session_id)
     if runtime is None:
         raise RuntimeError("No live browser session. Launch the browser first.")
-    runtime.page = _get_active_page(runtime)
     return runtime
 
 
-def launch_browser_session(
+async def launch_browser_session(
     session_id: str,
     *,
     start_url: str | None = None,
@@ -206,10 +233,11 @@ def launch_browser_session(
         runtime = get_runtime(session_id)
         target_url = _resolve_start_url(start_url)
         if target_url:
-            runtime.page.goto(target_url, wait_until="domcontentloaded")
+            page = await _get_active_page(runtime)
+            await page.goto(target_url, wait_until="domcontentloaded")
         return runtime
 
-    playwright = sync_playwright().start()
+    playwright = await async_playwright().start()
     resolved_user_data_dir = _resolve_user_data_dir(user_data_dir)
     resolved_headless = _resolve_headless(headless)
     resolved_channel = _resolve_channel(channel)
@@ -217,11 +245,15 @@ def launch_browser_session(
 
     try:
         if resolved_cdp_url:
-            browser = playwright.chromium.connect_over_cdp(resolved_cdp_url)
-            context = browser.contexts[0] if browser.contexts else browser.new_context(viewport=DEFAULT_VIEWPORT)
+            browser = await playwright.chromium.connect_over_cdp(resolved_cdp_url)
+            context = (
+                browser.contexts[0]
+                if browser.contexts
+                else await browser.new_context(viewport=DEFAULT_VIEWPORT)
+            )
             context.set_default_timeout(DEFAULT_TIMEOUT_MS)
             open_pages = [page for page in context.pages if not page.is_closed()]
-            page = open_pages[-1] if open_pages else context.new_page()
+            page = open_pages[-1] if open_pages else await context.new_page()
             connection_mode = "cdp"
             runtime = BrowserRuntime(
                 session_id=session_id,
@@ -237,14 +269,14 @@ def launch_browser_session(
             )
         else:
             Path(resolved_user_data_dir).mkdir(parents=True, exist_ok=True)
-            context = playwright.chromium.launch_persistent_context(
+            context = await playwright.chromium.launch_persistent_context(
                 user_data_dir=resolved_user_data_dir,
                 headless=resolved_headless,
                 channel=resolved_channel,
                 viewport=DEFAULT_VIEWPORT,
             )
             context.set_default_timeout(DEFAULT_TIMEOUT_MS)
-            page = context.pages[0] if context.pages else context.new_page()
+            page = context.pages[0] if context.pages else await context.new_page()
             connection_mode = "persistent"
             runtime = BrowserRuntime(
                 session_id=session_id,
@@ -259,7 +291,7 @@ def launch_browser_session(
                 cdp_url=None,
             )
     except Exception:
-        playwright.stop()
+        await playwright.stop()
         raise
 
     page.set_default_timeout(DEFAULT_TIMEOUT_MS)
@@ -267,17 +299,17 @@ def launch_browser_session(
 
     global _REGISTERED_ATEXIT
     if not _REGISTERED_ATEXIT:
-        atexit.register(close_all_sessions)
+        atexit.register(_close_all_sessions_sync)
         _REGISTERED_ATEXIT = True
 
     target_url = _resolve_start_url(start_url)
     if target_url:
-        runtime.page.goto(target_url, wait_until="domcontentloaded")
+        await runtime.page.goto(target_url, wait_until="domcontentloaded")
 
     return runtime
 
 
-def close_browser_session(session_id: str) -> bool:
+async def close_browser_session(session_id: str) -> bool:
     """Close and remove the browser session for the given ADK session."""
     runtime = _RUNTIMES.pop(session_id, None)
     if runtime is None:
@@ -285,19 +317,19 @@ def close_browser_session(session_id: str) -> bool:
 
     try:
         if runtime.connection_mode == "persistent":
-            runtime.context.close()
+            await runtime.context.close()
     finally:
-        runtime.playwright.stop()
+        await runtime.playwright.stop()
     return True
 
 
-def close_all_sessions() -> None:
+async def close_all_sessions() -> None:
     """Close all tracked browser sessions."""
     for session_id in list(_RUNTIMES):
-        close_browser_session(session_id)
+        await close_browser_session(session_id)
 
 
-def capture_observation(
+async def capture_observation(
     session_id: str,
     *,
     include_screenshot: bool = True,
@@ -309,23 +341,49 @@ def capture_observation(
     if runtime is None:
         return None
 
-    page = _get_active_page(runtime)
-    observation = _snapshot_page(page, element_limit=element_limit, text_limit=text_limit)
-    observation["screenshot_bytes"] = (
-        page.screenshot(type="jpeg", quality=70) if include_screenshot else None
-    )
-    observation["headless"] = runtime.headless
-    observation["user_data_dir"] = runtime.user_data_dir
-    observation["channel"] = runtime.channel
-    observation["connection_mode"] = runtime.connection_mode
-    observation["cdp_url"] = runtime.cdp_url
-    return observation
+    last_error: Exception | None = None
+    for attempt in range(2):
+        page = await _get_active_page(runtime)
+        try:
+            observation = await _snapshot_page(
+                page,
+                element_limit=element_limit,
+                text_limit=text_limit,
+            )
+            observation["screenshot_bytes"] = (
+                await page.screenshot(type="jpeg", quality=70)
+                if include_screenshot
+                else None
+            )
+            observation["headless"] = runtime.headless
+            observation["user_data_dir"] = runtime.user_data_dir
+            observation["channel"] = runtime.channel
+            observation["connection_mode"] = runtime.connection_mode
+            observation["cdp_url"] = runtime.cdp_url
+            return observation
+        except Exception as exc:
+            last_error = exc
+            if attempt == 1 or not _is_retryable_navigation_error(exc):
+                raise
+            try:
+                await page.wait_for_load_state(
+                    "domcontentloaded",
+                    timeout=DEFAULT_TIMEOUT_MS,
+                )
+            except Exception:
+                # Best-effort stabilization before retrying the observation.
+                pass
+
+    raise last_error or RuntimeError("Observation capture failed unexpectedly.")
 
 
-def build_browser_state(runtime: BrowserRuntime, observation: dict[str, Any] | None = None) -> dict[str, Any]:
+async def build_browser_state(
+    runtime: BrowserRuntime,
+    observation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build a JSON-serializable browser summary for ADK session state."""
     if observation is None:
-        observation = capture_observation(runtime.session_id, include_screenshot=False)
+        observation = await capture_observation(runtime.session_id, include_screenshot=False)
 
     return {
         "active": True,
@@ -335,5 +393,5 @@ def build_browser_state(runtime: BrowserRuntime, observation: dict[str, Any] | N
         "headless": runtime.headless,
         "channel": runtime.channel or "",
         "current_url": observation["url"] if observation else runtime.page.url,
-        "title": observation["title"] if observation else runtime.page.title(),
+        "title": observation["title"] if observation else await runtime.page.title(),
     }

@@ -15,7 +15,7 @@ def _describe_element(element: dict) -> str:
     return f'{element["tag"]}: "{label}"'
 
 
-def inject_browser_observation(callback_context, llm_request):
+async def inject_browser_observation(callback_context, llm_request):
     """Inject browser observation and plan context before each model turn."""
     plan = callback_context.state.get("plan")
 
@@ -57,7 +57,10 @@ def inject_browser_observation(callback_context, llm_request):
             lines.append(f"  {index}. {action}")
 
     try:
-        observation = capture_observation(callback_context.session.id, include_screenshot=True)
+        observation = await capture_observation(
+            callback_context.session.id,
+            include_screenshot=True,
+        )
     except Exception as exc:
         llm_request.contents.append(
             types.Content(
