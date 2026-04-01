@@ -8,7 +8,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 
+import httpx
 from playwright.async_api import Browser
 from playwright.async_api import BrowserContext
 from playwright.async_api import Page
@@ -76,7 +79,44 @@ def _resolve_start_url(start_url: str | None = None) -> str | None:
 
 def _resolve_cdp_url(cdp_url: str | None = None) -> str | None:
     value = cdp_url or os.getenv("BROWSER_CDP_URL")
-    return value or None
+    return value.strip() if value else None
+
+
+def _cdp_version_url(cdp_url: str) -> str:
+    parts = urlsplit(cdp_url)
+    if parts.scheme not in {"http", "https"}:
+        return cdp_url
+
+    normalized_path = parts.path.rstrip("/")
+    if normalized_path in {"", "/json", "/json/version"}:
+        path = "/json/version"
+        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+    return cdp_url
+
+
+async def _resolve_cdp_connect_target(cdp_url: str) -> str:
+    parts = urlsplit(cdp_url)
+    if parts.scheme not in {"http", "https"}:
+        return cdp_url
+
+    version_url = _cdp_version_url(cdp_url)
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_MS / 1000) as client:
+            response = await client.get(version_url)
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
+        return cdp_url
+
+    websocket_url = payload.get("webSocketDebuggerUrl")
+    return websocket_url or cdp_url
+
+
+def _should_navigate_to_target(connection_mode: str, target_url: str | None) -> bool:
+    if not target_url:
+        return False
+    return not (connection_mode == "cdp" and target_url == "about:blank")
 
 
 def _is_retryable_navigation_error(exc: Exception) -> bool:
@@ -97,12 +137,58 @@ def _all_open_pages(runtime: BrowserRuntime) -> list[Page]:
     return pages
 
 
+async def _page_activity(page: Page) -> dict[str, Any] | None:
+    try:
+        return await page.evaluate(
+            """() => ({
+                visibility: document.visibilityState,
+                hasFocus: document.hasFocus(),
+            })"""
+        )
+    except Exception:
+        return None
+
+
+async def _select_open_page(open_pages: list[Page], *, prefer_focused: bool) -> Page:
+    if not open_pages:
+        raise RuntimeError("No open browser pages available.")
+
+    if not prefer_focused:
+        return open_pages[-1]
+
+    visible_page: Page | None = None
+    for page in reversed(open_pages):
+        activity = await _page_activity(page)
+        if not activity:
+            continue
+        if activity.get("hasFocus"):
+            return page
+        if visible_page is None and activity.get("visibility") == "visible":
+            visible_page = page
+
+    return visible_page or open_pages[-1]
+
+
 async def _get_active_page(runtime: BrowserRuntime) -> Page:
+    if runtime.connection_mode == "cdp":
+        open_pages = _all_open_pages(runtime)
+        runtime.page = (
+            await _select_open_page(open_pages, prefer_focused=True)
+            if open_pages
+            else await runtime.context.new_page()
+        )
+        runtime.page.set_default_timeout(DEFAULT_TIMEOUT_MS)
+        return runtime.page
+
     if not runtime.page.is_closed():
         return runtime.page
 
     open_pages = _all_open_pages(runtime)
-    runtime.page = open_pages[-1] if open_pages else await runtime.context.new_page()
+    runtime.page = (
+        await _select_open_page(open_pages, prefer_focused=False)
+        if open_pages
+        else await runtime.context.new_page()
+    )
     runtime.page.set_default_timeout(DEFAULT_TIMEOUT_MS)
     return runtime.page
 
@@ -124,6 +210,7 @@ async def _snapshot_page(page: Page, *, element_limit: int, text_limit: int) -> 
             const testId = normalize(element.getAttribute("data-testid"));
             const id = normalize(element.id);
             const name = normalize(element.getAttribute("name"));
+            const type = normalize(element.getAttribute("type"));
             const placeholder = normalize(element.getAttribute("placeholder"));
             const ariaLabel = normalize(element.getAttribute("aria-label"));
             const text = normalize(element.innerText || element.textContent);
@@ -132,6 +219,7 @@ async def _snapshot_page(page: Page, *, element_limit: int, text_limit: int) -> 
             if (testId) selectors.push(`[data-testid="${testId}"]`);
             if (id) selectors.push(`[id="${id}"]`);
             if (name && ["input", "textarea", "select"].includes(tag)) selectors.push(`${tag}[name="${name}"]`);
+            if (tag === "input" && type) selectors.push(`input[type="${type}"]`);
             if (placeholder) selectors.push(`[placeholder="${placeholder}"]`);
             if (ariaLabel) selectors.push(`[aria-label="${ariaLabel}"]`);
             if (text) selectors.push(`text=${text.slice(0, 80)}`);
@@ -165,9 +253,13 @@ async def _snapshot_page(page: Page, *, element_limit: int, text_limit: int) -> 
               text: normalize(element.innerText || element.textContent).slice(0, 120),
               ariaLabel: normalize(element.getAttribute("aria-label")).slice(0, 120),
               placeholder: normalize(element.getAttribute("placeholder")).slice(0, 120),
+              inputType: normalize(element.getAttribute("type")).slice(0, 40),
               testId: normalize(element.getAttribute("data-testid")).slice(0, 120),
               id: normalize(element.id).slice(0, 120),
               name: normalize(element.getAttribute("name")).slice(0, 120),
+              selectedFiles: element instanceof HTMLInputElement && element.files
+                ? Array.from(element.files).map((file) => file.name).slice(0, 5)
+                : [],
             };
 
             const signature = JSON.stringify(entry);
@@ -219,6 +311,11 @@ def get_runtime(session_id: str) -> BrowserRuntime:
     return runtime
 
 
+async def get_active_page_for_session(session_id: str) -> Page:
+    """Return the currently active page for a live browser session."""
+    return await _get_active_page(get_runtime(session_id))
+
+
 async def launch_browser_session(
     session_id: str,
     *,
@@ -232,7 +329,7 @@ async def launch_browser_session(
     if session_id in _RUNTIMES:
         runtime = get_runtime(session_id)
         target_url = _resolve_start_url(start_url)
-        if target_url:
+        if _should_navigate_to_target(runtime.connection_mode, target_url):
             page = await _get_active_page(runtime)
             await page.goto(target_url, wait_until="domcontentloaded")
         return runtime
@@ -245,7 +342,8 @@ async def launch_browser_session(
 
     try:
         if resolved_cdp_url:
-            browser = await playwright.chromium.connect_over_cdp(resolved_cdp_url)
+            connect_target = await _resolve_cdp_connect_target(resolved_cdp_url)
+            browser = await playwright.chromium.connect_over_cdp(connect_target)
             context = (
                 browser.contexts[0]
                 if browser.contexts
@@ -253,7 +351,11 @@ async def launch_browser_session(
             )
             context.set_default_timeout(DEFAULT_TIMEOUT_MS)
             open_pages = [page for page in context.pages if not page.is_closed()]
-            page = open_pages[-1] if open_pages else await context.new_page()
+            page = (
+                await _select_open_page(open_pages, prefer_focused=True)
+                if open_pages
+                else await context.new_page()
+            )
             connection_mode = "cdp"
             runtime = BrowserRuntime(
                 session_id=session_id,
@@ -303,7 +405,7 @@ async def launch_browser_session(
         _REGISTERED_ATEXIT = True
 
     target_url = _resolve_start_url(start_url)
-    if target_url:
+    if _should_navigate_to_target(runtime.connection_mode, target_url):
         await runtime.page.goto(target_url, wait_until="domcontentloaded")
 
     return runtime

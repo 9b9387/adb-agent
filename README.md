@@ -90,12 +90,12 @@ BROWSER_START_URL=
 
 ### Reuse Your Current Browser via CDP
 
-Yes. If you want the agent to drive your already running Chrome or Chromium instead of opening its own Playwright profile, start that browser with a remote debugging port and set `BROWSER_CDP_URL`.
+Yes. If you want the agent to drive your already running Chrome or Chromium instead of opening its own Playwright profile, start that browser with a remote debugging port and a dedicated user-data directory, then set `BROWSER_CDP_URL`.
 
 Example:
 
 ```bash
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-cdp-profile
 ```
 
 Then in `.env`:

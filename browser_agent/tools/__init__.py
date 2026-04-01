@@ -11,6 +11,7 @@ from .browser import open_url
 from .browser import press_key
 from .browser import read_page
 from .browser import scroll
+from .browser import set_file_input
 from .browser import type_text
 from .browser import wait_for
 
@@ -20,6 +21,7 @@ ALL_TOOLS = [
     open_url,
     click,
     type_text,
+    set_file_input,
     press_key,
     scroll,
     wait_for,

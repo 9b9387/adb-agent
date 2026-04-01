@@ -1,5 +1,8 @@
 """Tests for shared plan-loop tools."""
 
+from types import SimpleNamespace
+
+from agent_shared.callbacks import record_tool_usage
 from agent_shared.memo import read_memo
 from agent_shared.memo import write_memo
 from agent_shared.planning import advance_plan
@@ -44,3 +47,22 @@ def test_memo_round_trip():
         "key": "target_url",
         "value": "https://example.com",
     }
+
+
+def test_record_tool_usage_redacts_sensitive_args():
+    tool_context = FakeToolContext()
+    tool = SimpleNamespace(name="set_file_input")
+
+    record_tool_usage(
+        tool,
+        {
+            "selector": 'input[type="file"]',
+            "file_path": "/Users/example/secret.png",
+            "text": "top-secret",
+        },
+        tool_context,
+    )
+
+    assert tool_context.state["action_history"] == [
+        "set_file_input(selector='input[type=\"file\"]', file_path='<redacted>', text='<redacted>')"
+    ]

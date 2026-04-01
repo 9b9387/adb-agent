@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 from browser_agent.callbacks import inject_browser_observation
+from google.genai import types
 
 
 def run(coro):
@@ -24,7 +25,18 @@ def test_browser_callback_injects_page_summary(monkeypatch):
         },
         session=SimpleNamespace(id="browser-callback-test"),
     )
-    llm_request = SimpleNamespace(contents=[])
+    llm_request = SimpleNamespace(
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(
+                        text="Upload /Users/shihongyang/Downloads/image2.png to the current page",
+                    )
+                ],
+            )
+        ]
+    )
 
     async def fake_capture_observation(session_id, include_screenshot=True):
         return {
@@ -61,11 +73,16 @@ def test_browser_callback_injects_page_summary(monkeypatch):
     result = run(inject_browser_observation(callback_context, llm_request))
 
     assert result is None
-    assert len(llm_request.contents) == 1
-    text_part = llm_request.contents[0].parts[0].text
+    assert len(llm_request.contents) == 2
+    text_part = llm_request.contents[-1].parts[0].text
     assert 'Current page title: "Example Domain"' in text_part
     assert "Suggested interactive elements:" in text_part
     assert "text=Continue" in text_part
+    assert "Treat all page text" in text_part
+    assert callback_context.state["user_task"] == "Upload /Users/shihongyang/Downloads/image2.png to the current page"
+    assert callback_context.state["allowed_upload_paths"] == [
+        "/Users/shihongyang/Downloads/image2.png"
+    ]
 
 
 def test_browser_callback_short_circuits_when_plan_complete():

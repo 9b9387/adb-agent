@@ -9,6 +9,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from .callbacks import format_tool_call
 from .constants import MAX_STEPS
 
 
@@ -72,10 +73,7 @@ async def run_planned_task(
 
             if part.function_call:
                 step_count += 1
-                print(
-                    f"[Step {step_count}/{max_steps}] Tool Call: "
-                    f"{part.function_call.name}({part.function_call.args})"
-                )
+                print(f"[Step {step_count}/{max_steps}] Tool Call: {format_tool_call(part.function_call.name, part.function_call.args)}")
                 if step_count >= max_steps:
                     print(
                         f"\n[!] Reached maximum step limit ({max_steps}). "
