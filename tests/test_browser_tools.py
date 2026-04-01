@@ -1,5 +1,6 @@
 """Tests for Playwright-backed browser tools."""
 
+import asyncio
 from types import SimpleNamespace
 
 import browser_agent.runtime_registry as runtime_registry
@@ -13,12 +14,16 @@ from browser_agent.tools.browser import type_text
 from browser_agent.tools.browser import wait_for
 
 
+def run(coro):
+    return asyncio.run(coro)
+
+
 class FakeKeyboard:
     def __init__(self, page):
         self.page = page
         self.pressed = []
 
-    def press(self, key):
+    async def press(self, key):
         self.pressed.append(key)
 
 
@@ -27,7 +32,7 @@ class FakeMouse:
         self.page = page
         self.scroll_events = []
 
-    def wheel(self, delta_x, delta_y):
+    async def wheel(self, delta_x, delta_y):
         self.scroll_events.append((delta_x, delta_y))
 
 
@@ -40,15 +45,15 @@ class FakeLocator:
     def first(self):
         return self
 
-    def click(self):
+    async def click(self):
         self.page.last_clicked = self.selector
         if self.selector == "text=Continue":
             self.page.title_value = "Continue clicked"
 
-    def fill(self, text):
+    async def fill(self, text):
         self.page.filled[self.selector] = text
 
-    def wait_for(self, state, timeout):
+    async def wait_for(self, state, timeout):
         self.page.waited_for = (self.selector, state, timeout)
 
 
@@ -69,20 +74,20 @@ class FakePage:
     def set_default_timeout(self, timeout_ms):
         self.timeout_ms = timeout_ms
 
-    def goto(self, url, wait_until):
+    async def goto(self, url, wait_until):
         self.url = url
         if "example" in url:
             self.title_value = "Example Domain"
         else:
             self.title_value = "Loaded page"
 
-    def title(self):
+    async def title(self):
         return self.title_value
 
-    def screenshot(self, type, quality):
+    async def screenshot(self, type, quality):
         return b"fake-jpeg"
 
-    def evaluate(self, script, args):
+    async def evaluate(self, script, args):
         return {
             "url": self.url,
             "title": self.title_value,
@@ -131,12 +136,12 @@ class FakeContext:
     def set_default_timeout(self, timeout_ms):
         self.timeout_ms = timeout_ms
 
-    def new_page(self):
+    async def new_page(self):
         self.page = FakePage()
         self.pages.append(self.page)
         return self.page
 
-    def close(self):
+    async def close(self):
         self.closed = True
         for page in self.pages:
             page.closed = True
@@ -148,11 +153,11 @@ class FakeBrowser:
 
 
 class FakeChromium:
-    def launch_persistent_context(self, **kwargs):
+    async def launch_persistent_context(self, **kwargs):
         self.launch_kwargs = kwargs
         return FakeContext()
 
-    def connect_over_cdp(self, endpoint_url):
+    async def connect_over_cdp(self, endpoint_url):
         self.endpoint_url = endpoint_url
         return FakeBrowser(FakeContext())
 
@@ -162,7 +167,7 @@ class FakePlaywright:
         self.chromium = FakeChromium()
         self.stopped = False
 
-    def stop(self):
+    async def stop(self):
         self.stopped = True
 
 
@@ -170,7 +175,7 @@ class FakePlaywrightManager:
     def __init__(self, playwright):
         self.playwright = playwright
 
-    def start(self):
+    async def start(self):
         return self.playwright
 
 
@@ -182,41 +187,41 @@ class FakeToolContext:
 
 def test_browser_tools_round_trip(monkeypatch):
     fake_playwright = FakePlaywright()
-    runtime_registry.close_all_sessions()
+    run(runtime_registry.close_all_sessions())
     monkeypatch.setattr(
         runtime_registry,
-        "sync_playwright",
+        "async_playwright",
         lambda: FakePlaywrightManager(fake_playwright),
     )
 
     tool_context = FakeToolContext()
 
-    open_result = open_url("https://example.com", tool_context)
+    open_result = run(open_url("https://example.com", tool_context))
     assert open_result["status"] == "success"
     assert tool_context.state["browser"]["current_url"] == "https://example.com"
 
-    click_result = click("text=Continue", tool_context)
+    click_result = run(click("text=Continue", tool_context))
     assert click_result["status"] == "success"
     assert click_result["title"] == "Continue clicked"
 
-    type_result = type_text('input[name="search"]', "playwright", False, tool_context)
+    type_result = run(type_text('input[name="search"]', "playwright", False, tool_context))
     assert type_result["status"] == "success"
 
-    wait_result = wait_for("", "Welcome", 2.0, tool_context)
+    wait_result = run(wait_for("", "Welcome", 2.0, tool_context))
     assert wait_result["status"] == "success"
 
-    scroll_result = scroll("down", 500, tool_context)
+    scroll_result = run(scroll("down", 500, tool_context))
     assert scroll_result["status"] == "success"
 
-    key_result = press_key("Enter", tool_context)
+    key_result = run(press_key("Enter", tool_context))
     assert key_result["status"] == "success"
 
-    page_result = read_page(tool_context)
+    page_result = run(read_page(tool_context))
     assert page_result["status"] == "success"
     assert page_result["url"] == "https://example.com"
     assert page_result["elements"][0]["suggestedSelectors"][0] == "text=Continue"
 
-    close_result = close_browser(tool_context)
+    close_result = run(close_browser(tool_context))
     assert close_result["status"] == "success"
     assert tool_context.state["browser"] == {"active": False}
     assert fake_playwright.stopped is True
@@ -224,22 +229,22 @@ def test_browser_tools_round_trip(monkeypatch):
 
 def test_browser_tools_support_cdp(monkeypatch):
     fake_playwright = FakePlaywright()
-    runtime_registry.close_all_sessions()
+    run(runtime_registry.close_all_sessions())
     monkeypatch.setattr(
         runtime_registry,
-        "sync_playwright",
+        "async_playwright",
         lambda: FakePlaywrightManager(fake_playwright),
     )
     monkeypatch.setenv("BROWSER_CDP_URL", "http://127.0.0.1:9222")
 
     tool_context = FakeToolContext(session_id="browser-cdp-test")
 
-    open_result = open_url("https://example.com", tool_context)
+    open_result = run(open_url("https://example.com", tool_context))
 
     assert open_result["status"] == "success"
     assert tool_context.state["browser"]["connection_mode"] == "cdp"
     assert tool_context.state["browser"]["cdp_url"] == "http://127.0.0.1:9222"
 
-    close_result = close_browser(tool_context)
+    close_result = run(close_browser(tool_context))
     assert close_result["status"] == "success"
     assert fake_playwright.stopped is True

@@ -1,8 +1,13 @@
 """Tests for browser agent callbacks."""
 
+import asyncio
 from types import SimpleNamespace
 
 from browser_agent.callbacks import inject_browser_observation
+
+
+def run(coro):
+    return asyncio.run(coro)
 
 
 def test_browser_callback_injects_page_summary(monkeypatch):
@@ -21,9 +26,8 @@ def test_browser_callback_injects_page_summary(monkeypatch):
     )
     llm_request = SimpleNamespace(contents=[])
 
-    monkeypatch.setattr(
-        "browser_agent.callbacks.capture_observation",
-        lambda session_id, include_screenshot=True: {
+    async def fake_capture_observation(session_id, include_screenshot=True):
+        return {
             "url": "https://example.com",
             "title": "Example Domain",
             "textExcerpt": "Welcome to the example page",
@@ -47,10 +51,14 @@ def test_browser_callback_injects_page_summary(monkeypatch):
                 }
             ],
             "screenshot_bytes": b"fake-jpeg",
-        },
+        }
+
+    monkeypatch.setattr(
+        "browser_agent.callbacks.capture_observation",
+        fake_capture_observation,
     )
 
-    result = inject_browser_observation(callback_context, llm_request)
+    result = run(inject_browser_observation(callback_context, llm_request))
 
     assert result is None
     assert len(llm_request.contents) == 1
@@ -75,7 +83,7 @@ def test_browser_callback_short_circuits_when_plan_complete():
     )
     llm_request = SimpleNamespace(contents=[])
 
-    response = inject_browser_observation(callback_context, llm_request)
+    response = run(inject_browser_observation(callback_context, llm_request))
 
     assert response is not None
     assert response.turn_complete is True
