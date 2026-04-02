@@ -6,11 +6,7 @@ import os
 import re
 from pathlib import Path
 
-try:
-    import yaml as _yaml
-    _HAS_YAML = True
-except ImportError:
-    _HAS_YAML = False
+import frontmatter
 
 # Default to ~/.agents/skills; override with SKILLS_BASE_DIR env var.
 _DEFAULT_SKILLS_DIR = Path.home() / ".agents" / "skills"
@@ -44,38 +40,16 @@ def _extract_description(skill_name: str) -> str:
     if path is None:
         return "(no description)"
     try:
-        text = path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        if lines and lines[0].strip() == "---":
-            # Find the closing --- of the frontmatter
-            end = next(
-                (i for i, ln in enumerate(lines[1:], start=1) if ln.strip() == "---"),
-                None,
-            )
-            if end is not None:
-                front_text = "\n".join(lines[1:end])
-                if _HAS_YAML:
-                    try:
-                        data = _yaml.safe_load(front_text) or {}
-                        desc = data.get("description", "")
-                        if desc:
-                            # Normalize whitespace from folded/literal block scalars
-                            desc = re.sub(r"\s+", " ", str(desc)).strip()
-                            return desc[:200]
-                    except _yaml.YAMLError:
-                        pass
-        # Fallback: first non-blank, non-heading body line after frontmatter
-        in_frontmatter = lines and lines[0].strip() == "---"
-        past_front = not in_frontmatter
-        for line in lines[1:]:
+        post = frontmatter.load(str(path))
+        desc = post.get("description", "")
+        if desc:
+            return re.sub(r"\s+", " ", str(desc)).strip()[:200]
+        # Fallback: first non-blank, non-heading line from the Markdown body
+        for line in post.content.splitlines():
             stripped = line.strip()
-            if not past_front:
-                if stripped == "---":
-                    past_front = True
-                continue
-            if stripped and not stripped.startswith("#") and stripped != "---":
+            if stripped and not stripped.startswith(("#", ">", "---")):
                 return stripped[:200]
-    except OSError:
+    except Exception:
         pass
     return "(no description)"
 
