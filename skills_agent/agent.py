@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.skills import list_skills_in_dir, load_skill_from_dir
+from google.adk.tools.bash_tool import ExecuteBashTool
 from google.adk.tools.load_web_page import load_web_page
 from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
@@ -43,7 +44,7 @@ def _build_skill_toolset() -> SkillToolset:
     return SkillToolset(skills=skills)
 
 
-model_name = os.getenv("MODEL_NAME", "gemini-2.5-flash")
+model_name = os.getenv("MODEL_NAME", "gemini-3-flash-preview")
 
 root_agent = Agent(
     name="skills_agent",
@@ -53,6 +54,6 @@ root_agent = Agent(
         "to help users accomplish domain-specific tasks."
     ),
     instruction=SYSTEM_INSTRUCTION,
-    tools=[_build_skill_toolset(), load_web_page],
+    tools=[_build_skill_toolset(), load_web_page, ExecuteBashTool()],
     generate_content_config=types.GenerateContentConfig(temperature=0.2),
 )
