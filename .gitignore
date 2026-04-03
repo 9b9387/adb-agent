@@ -11,3 +11,5 @@ wheels/
 .env
 adb_agent/.adk
 .DS_Store
+postgres_data/
+*.adk/

@@ -14,12 +14,14 @@ dependencies = [
     "Pillow>=10.0.0",
     "playwright>=1.58.0",
     "python-dotenv>=1.0.0",
+    "asyncpg>=0.30.0",
 ]
 
 [project.scripts]
 adb-agent = "main:main"
 browser-agent = "browser_main:main"
 adk-web-agents = "adk_web_agents.cli:main"
+scraper-agent = "scraper_main:main"
 
 [dependency-groups]
 dev = [
@@ -32,5 +34,5 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["adb_agent*", "browser_agent*", "agent_shared*", "adk_web_agents*"]
+include = ["adb_agent*", "browser_agent*", "agent_shared*", "adk_web_agents*", "scraper_agent*"]
 exclude = ["tests*"]
