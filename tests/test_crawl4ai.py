@@ -9,7 +9,9 @@ The tests automatically skip when the service is not reachable, so they do not
 break CI pipelines that run without the Docker service.
 
 Run against the live service:
-    CRAWL4AI_BASE_URL=http://192.168.8.109:11235 pytest tests/test_crawl4ai_integration.py -v
+    CRAWL4AI_BASE_URL=http://192.168.8.109:11235 pytest tests/test_crawl4ai_integration.py -v -s
+    or
+    pytest tests/test_crawl4ai_integration.py -v -s
 """
 
 import os
@@ -19,7 +21,6 @@ import pytest
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
 
 CRAWL4AI_BASE_URL = os.getenv("CRAWL4AI_BASE_URL", "http://localhost:11235")
-
 
 def test_crawl4ai_service_health():
     """Verify the crawl4ai service is reachable and returns health status."""
