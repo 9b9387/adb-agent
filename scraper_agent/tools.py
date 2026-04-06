@@ -17,7 +17,9 @@ class Crawl4aiTool:
     Tool to crawl a webpage using the crawl4ai service running on Docker.
     """
     
-    def __init__(self, base_url: str = "http://localhost:11235"):
+    def __init__(self, base_url: str):
+        if not base_url:
+            raise ValueError("Crawl4ai base URL must be provided.")
         self.base_url = base_url
         
     async def crawl_url(self, url: str, wait_for: Optional[str] = None, css_selector: Optional[str] = None, extraction_schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -7,8 +7,8 @@ from google.adk.tools import google_search
 from scraper_agent.tools import Crawl4aiTool, DatabaseTool
 
 # Initialize tools
-crawler = Crawl4aiTool()
-db_tool = DatabaseTool(os.getenv("DATABASE_URL", "postgresql://agent:password@localhost:5432/agent_db"))
+crawler = Crawl4aiTool(os.getenv("CRAWL4AI_BASE_URL"))
+db_tool = DatabaseTool(os.getenv("DATABASE_URL"))
 
 # Create ADK-compatible tool functions
 async def crawl_url(url: str, wait_for: Optional[str] = None, css_selector: Optional[str] = None, extraction_schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
