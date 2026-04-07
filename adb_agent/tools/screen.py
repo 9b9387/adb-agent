@@ -42,14 +42,14 @@ def get_screen_size() -> dict:
 
 
 def resize_screenshot(png_bytes: bytes, max_size: int = 640) -> bytes:
-    """Resize a screenshot to reduce token usage when sending to LLM.
+    """Resize and pad a screenshot to a square to reduce token usage and preserve aspect ratio.
 
-    Preserves aspect ratio, scales the long edge to max_size pixels,
+    Pads the image to a square with a white background, scales it to max_size,
     and encodes as JPEG with quality=85 for compression.
 
     Args:
         png_bytes: Raw PNG screenshot bytes from ADB.
-        max_size: Maximum dimension (long edge) in pixels. Default 640.
+        max_size: Maximum dimension (square edge) in pixels. Default 1024.
 
     Returns:
         Compressed JPEG bytes.
@@ -57,17 +57,18 @@ def resize_screenshot(png_bytes: bytes, max_size: int = 640) -> bytes:
     img = Image.open(io.BytesIO(png_bytes))
     w, h = img.size
 
-    # Scale so the long edge equals max_size
-    if max(w, h) > max_size:
-        scale = max_size / max(w, h)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-
-    # Convert to RGB (JPEG doesn't support alpha)
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
 
+    max_dim = max(w, h)
+    square_img = Image.new("RGB", (max_dim, max_dim), (255, 255, 255))
+    offset_x = (max_dim - w) // 2
+    offset_y = (max_dim - h) // 2
+    square_img.paste(img, (offset_x, offset_y))
+
+    if max_dim > max_size:
+        square_img = square_img.resize((max_size, max_size), Image.LANCZOS)
+
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
+    square_img.save(buf, format="JPEG", quality=85)
     return buf.getvalue()

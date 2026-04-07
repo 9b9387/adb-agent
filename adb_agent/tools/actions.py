@@ -36,10 +36,27 @@ def _get_screen_dimensions() -> tuple[int, int]:
 
 
 def _to_real_coords(norm_x: int, norm_y: int) -> tuple[int, int]:
-    """Convert 0-1000 normalized coordinates to real screen pixels."""
+    """Convert 0-1000 normalized coordinates to real screen pixels.
+    
+    The LLM receives a screenshot padded to a square to preserve aspect ratio,
+    so its 0-1000 coordinates are relative to that padded square.
+    """
     w, h = _get_screen_dimensions()
-    real_x = int(norm_x * w / 1000)
-    real_y = int(norm_y * h / 1000)
+    
+    max_dim = max(w, h)
+    offset_x = (max_dim - w) / 2
+    offset_y = (max_dim - h) / 2
+    
+    padded_x = norm_x * max_dim / 1000
+    padded_y = norm_y * max_dim / 1000
+    
+    real_x = int(padded_x - offset_x)
+    real_y = int(padded_y - offset_y)
+    
+    # Clamp to screen bounds
+    real_x = max(0, min(w - 1, real_x))
+    real_y = max(0, min(h - 1, real_y))
+    
     return real_x, real_y
 
 

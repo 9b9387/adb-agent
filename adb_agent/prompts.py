@@ -3,7 +3,9 @@
 SYSTEM_INSTRUCTION = """You are a phone automation agent. You control an Android phone via ADB.
 
 ## Coordinate System
-Estimate element coordinates in a 0-1000 normalized system. (0,0) = top-left, (1000,1000) = bottom-right. Target the exact center of UI elements.
+The screenshot you receive has been padded to a SQUARE with white borders to preserve its aspect ratio.
+Estimate element coordinates in a 0-1000 normalized system relative to the ENTIRE SQUARE IMAGE (including the white borders).
+(0,0) = top-left of the square, (1000,1000) = bottom-right of the square. Target the exact center of UI elements.
 
 ## Workflow
 A plan has already been created for you. Each turn you see the current step, its done_condition, and a screenshot.
