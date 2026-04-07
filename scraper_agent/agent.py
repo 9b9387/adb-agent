@@ -2,6 +2,7 @@ import os
 from typing import Dict, Any, Optional
 
 from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import google_search
 
 from scraper_agent.tools import Crawl4aiTool, DatabaseTool
@@ -34,10 +35,18 @@ async def save_to_db(url: str, ai_content: Dict[str, Any], status: str = "ai_pro
     """
     return await db_tool.save_to_db(url, ai_content, status)
 
+model_name = os.getenv("MODEL_NAME", "gemini-2.5-flash")
+vllm_base_url = os.getenv("VLLM_BASE_URL")
+
+if vllm_base_url:
+    model = LiteLlm(model=f"openai/{model_name}", api_base=vllm_base_url, api_key="dummy")
+else:
+    model = model_name
+
 # Expose root_agent for ADK Web UI
 root_agent = Agent(
     name="scraper_agent",
-    model="gemini-2.5-flash",
+    model=model,
     instruction=(
         "You are an intelligent web scraping and content processing agent. "
         "You have access to two tools: \n"
