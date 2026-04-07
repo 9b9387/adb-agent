@@ -1,0 +1,21 @@
+{
+  "name": "DoubanBookInfo",
+  "baseSelector": "#wrapper",
+  "fields": [
+    {
+      "name": "title",
+      "selector": "h1 span[property='v:itemreviewed']",
+      "type": "text"
+    },
+    {
+      "name": "summary",
+      "selector": ".all .intro",
+      "type": "text"
+    },
+    {
+      "name": "info_block",
+      "selector": "#info",
+      "type": "text"
+    }
+  ]
+}
