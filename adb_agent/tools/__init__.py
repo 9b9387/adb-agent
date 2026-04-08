@@ -1,6 +1,6 @@
 """Aggregated list of all ADB tool functions for the agent."""
 
-from .actions import (
+from .adb import (
     adb_shell,
     double_tap,
     long_press,
@@ -9,26 +9,26 @@ from .actions import (
     tap,
     type_text,
     wait,
-)
-from .file_ops import (
     pull_file,
     push_file,
+    get_screen_size,
+    check_adb_connection,
 )
 from .memo import (
     read_memo,
     write_memo,
 )
-from .planning import (
-    advance_plan,
-)
-from .screen import (
-    get_screen_size,
+from .planner import (
+    update_plan,
+    create_plan,
 )
 
 ALL_TOOLS = [
     # Planning
-    advance_plan,
-    # Screen
+    create_plan,
+    update_plan,
+    # Screen & ADB
+    check_adb_connection,
     get_screen_size,
     # Interaction
     adb_shell,

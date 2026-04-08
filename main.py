@@ -9,13 +9,19 @@ import sys
 from dotenv import load_dotenv
 load_dotenv()
 
+# Remove SOCKS proxies from environment to prevent httpx from crashing
+# when socksio is not installed.
+for key in list(os.environ.keys()):
+    if key.lower() in ('http_proxy', 'https_proxy', 'all_proxy'):
+        if os.environ[key].lower().startswith('socks'):
+            del os.environ[key]
+
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from adb_agent.agent import root_agent
-from adb_agent.callbacks import MAX_STEPS
-from adb_agent.planner import generate_plan
+from app.agent import root_agent
+from app.callbacks import MAX_STEPS
 
 APP_NAME = "adb_agent"
 USER_ID = "user"
@@ -23,16 +29,9 @@ USER_ID = "user"
 
 async def run_task(task: str):
     """Run the agent with the given task prompt."""
-    # Phase 1: Planning (standalone LLM call, before agent loop)
     print(f"Task: {task}")
-    print("Planning...")
-    plan = generate_plan(task)
-    print(f"Plan: {plan['goal']} ({len(plan['steps'])} steps)")
-    for i, (step, cond) in enumerate(zip(plan["steps"], plan["done_conditions"]), 1):
-        print(f"  {i}. {step} → done when: {cond}")
     print("-" * 60)
 
-    # Phase 2: Execution (agent loop with pre-built plan in session state)
     session_service = InMemorySessionService()
     runner = Runner(
         agent=root_agent,
@@ -43,7 +42,6 @@ async def run_task(task: str):
     session = await session_service.create_session(
         app_name=APP_NAME,
         user_id=USER_ID,
-        state={"plan": plan},
     )
 
     message = types.Content(
@@ -77,7 +75,8 @@ async def run_task(task: str):
 def check_environment():
     """Check if the environment is properly configured before running."""
     # 1. Check API Key
-    if not os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY") == "your-api-key-here":
+    use_local_llm = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+    if not use_local_llm and (not os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY") == "your-api-key-here"):
         print("[!] Error: GOOGLE_API_KEY is not set or invalid. Please check your .env file.")
         sys.exit(1)
 
@@ -93,11 +92,7 @@ def check_environment():
         # Header is "List of devices attached", valid devices follow that line
         devices = [line for line in lines[1:] if line.strip() and not line.startswith("*")]
         if not devices:
-            print("[!] Error: No Android device detected.")
-            print("Please check:
-  1. USB cable is connected
-  2. Developer Options and USB Debugging are enabled on the device
-  3. USB debugging authorization has been granted on the device screen")
+            print("Error: No Android device detected.")
             sys.exit(1)
     except Exception as e:
         print(f"[!] Error: Failed to run 'adb devices': {e}")

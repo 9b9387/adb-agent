@@ -5,8 +5,8 @@ description = "Phone automation agent using Google ADK + Android ADB with pure v
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "google-adk>=1.0.0",
-    "httpx[socks]>=0.28.1",
+    "google-adk[extensions]==2.0.0a2",
+    "litellm>=1.82.6",
     "Pillow>=10.0.0",
     "python-dotenv>=1.0.0",
 ]
